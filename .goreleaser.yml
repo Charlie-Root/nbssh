@@ -5,12 +5,6 @@ release:
   draft: true # we only publish after the Windows MSI gets uploaded
   name_template: "GitHub CLI {{.Version}}"
 
-before:
-  hooks:
-    - >- # The linux and windows archives package the manpages below
-      {{ if eq .Runtime.Goos "windows" }}echo{{ end }} make manpages GH_VERSION={{.Version}}
-    - >- # On linux the completions are used in nfpms below, but on macos they are used outside in the deployment build.
-      {{ if eq .Runtime.Goos "windows" }}echo{{ end }} make completions
 builds:
   - id: macos #build:macos
     goos: [darwin]
