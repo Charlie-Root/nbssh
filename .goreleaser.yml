@@ -6,16 +6,6 @@ builds:
     goarch:
       - amd64
 
-dockers:
-- image_templates: ["ghcr.io/goreleaser/example:{{ .Version }}"]
-  dockerfile: Dockerfile
-  build_flag_templates:
-  - --label=org.opencontainers.image.title={{ .ProjectName }}
-  - --label=org.opencontainers.image.description={{ .ProjectName }}
-  - --label=org.opencontainers.image.url=https://github.com/Charlie-Root/nbssh
-  - --label=org.opencontainers.image.source=https://github.com/Charlie-Root/nbssh
-  - --label=org.opencontainers.image.revision={{ .FullCommit }}
-  - --label=org.opencontainers.image.licenses=MIT
 nfpms:
 - maintainer: Carlos A Becker <root@carlosbecker.dev>
   description: Sample project.
