@@ -1,4 +1,4 @@
-module nbssh
+module github.com/Charlie-Root/nbssh
 
 go 1.22
 
