@@ -7,9 +7,12 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
+	"os/signal"
+	"syscall"
 
 	"github.com/go-resty/resty/v2"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
 // NetboxAPIResponse represents the response from the Netbox API for a device or VM
@@ -33,7 +36,7 @@ func main() {
 	hostname := flag.Arg(0)
 
 	// Configure Netbox API
-		// Read environment variables
+	// Read environment variables
 	netboxURL := os.Getenv("NETBOX_URL")
 	apiToken := os.Getenv("NETBOX_API_TOKEN")
 
@@ -100,18 +103,79 @@ func main() {
 		log.Fatalf("Host %s not found in Netbox", hostname)
 	}
 
-	// Build the SSH command
-	var sshCmd *exec.Cmd
-	if *username == "" {
-		sshCmd = exec.Command("ssh", primaryIP)
-	} else {
-		sshCmd = exec.Command("ssh", *username+"@"+primaryIP)
+	// Configure SSH client
+	config := &ssh.ClientConfig{
+		User: func() string {
+			if *username != "" {
+				return *username
+			}
+			// Try to get current user if no username provided
+			if user := os.Getenv("USER"); user != "" {
+				return user
+			}
+			return "root" // fallback
+		}(),
+		Auth: []ssh.AuthMethod{
+			ssh.PasswordCallback(func() (string, error) {
+				fmt.Print("Password: ")
+				password, err := term.ReadPassword(int(syscall.Stdin))
+				fmt.Println()
+				return string(password), err
+			}),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // Consider using proper host key verification in production
 	}
-	sshCmd.Stdin = os.Stdin
-	sshCmd.Stdout = os.Stdout
-	sshCmd.Stderr = os.Stderr
 
-	if err := sshCmd.Run(); err != nil {
-		log.Fatalf("Error initiating SSH connection: %v", err)
+	// Connect to SSH server
+	conn, err := ssh.Dial("tcp", primaryIP+":22", config)
+	if err != nil {
+		log.Fatalf("Failed to connect to SSH server: %v", err)
+	}
+	defer conn.Close()
+
+	// Create a session
+	session, err := conn.NewSession()
+	if err != nil {
+		log.Fatalf("Failed to create SSH session: %v", err)
+	}
+	defer session.Close()
+
+	// Set up terminal
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
+	session.Stdin = os.Stdin
+
+	// Get terminal size and mode
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		width, height, err := term.GetSize(int(os.Stdin.Fd()))
+		if err == nil {
+			if err := session.RequestPty("xterm", height, width, ssh.TerminalModes{}); err != nil {
+				log.Fatalf("Failed to request PTY: %v", err)
+			}
+		}
+	}
+
+	// Handle terminal resize signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGWINCH)
+	go func() {
+		for range sigChan {
+			if term.IsTerminal(int(os.Stdin.Fd())) {
+				width, height, err := term.GetSize(int(os.Stdin.Fd()))
+				if err == nil {
+					session.WindowChange(height, width)
+				}
+			}
+		}
+	}()
+
+	// Start interactive shell
+	if err := session.Shell(); err != nil {
+		log.Fatalf("Failed to start shell: %v", err)
+	}
+
+	// Wait for session to complete
+	if err := session.Wait(); err != nil {
+		log.Fatalf("SSH session ended with error: %v", err)
 	}
 }
